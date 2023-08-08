@@ -14,7 +14,12 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
 #include "Misc/FileHelper.h"
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "Components/Button.h"
 #include "Misc/Paths.h"
+#include "Widgets/Input/SButton.h"
+#include "Components/VerticalBox.h"
+
 // localization namespace
 #define LOCTEXT_NAMESPACE "KaedimPluginSimpleTool"
 
@@ -67,23 +72,36 @@ void UKaedimPluginSimpleTool::Setup()
 	Properties->DevID = FText::FromString(TEXT(""));
 	Properties->APIKey = FText::FromString(TEXT(""));
 	Properties->jwt = "";
+
+	Properties->ButtonContainer = NewObject<UVerticalBox>(this);
+	Properties->ButtonContainer->SetVisibility(ESlateVisibility::Visible);
+
 }
 
 
-void UKaedimPluginSimpleTool::OnClicked(const FInputDeviceRay& ClickPos)
-{
-	return;
+void UKaedimPluginSimpleToolProperties::AddLoadAssetButton(const FString& name, const FString& ObjUrl) {
+	UButton* Button = NewObject<UButton>(this);
+	ButtonContainer->AddChild(Cast<UWidget>(Button));
 }
+//
+//void UKaedimPluginSimpleToolProperties::testAddButton() {
+//	UE_LOG(LogTemp, Warning, TEXT("Attempting to add button"));
+//	UButton* Button = NewObject<UButton>(this);
+//	Button->SetVisibility(ESlateVisibility::Visible);
+//	ButtonContainer->AddChildToVerticalBox(Cast<UWidget>(Button));
+//}
 
-void UKaedimPluginSimpleToolProperties::ImportAsset(const FString& name, const FString& ObjUrl)
+void UKaedimPluginSimpleToolProperties::DownloadAsset(const FString& name, const FString& ObjUrl)
 {
-	// Create the destination path
-	FString DestinationPath = FPaths::ProjectContentDir() + "Kaedim/" + name;
+	// Create the destination path if it doesn't exist
+	FString DestinationPath = FPaths::ProjectContentDir() + "Kaedim/" + name + ".obj";
+	FPlatformFileManager::Get().GetPlatformFile().CreateDirectoryTree(*FPaths::GetPath(DestinationPath));
 
 	// Create the HTTP request
 	TSharedRef<IHttpRequest> HttpRequest = FHttpModule::Get().CreateRequest();
 	HttpRequest->SetURL(ObjUrl);
 	HttpRequest->SetVerb("GET");
+
 
 	// Set the completion callback as a lambda function
 	HttpRequest->OnProcessRequestComplete().BindLambda([=](FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful)
@@ -92,6 +110,9 @@ void UKaedimPluginSimpleToolProperties::ImportAsset(const FString& name, const F
 			{
 				// Save the response data to a file
 				FFileHelper::SaveArrayToFile(Response->GetContent(), *DestinationPath);
+
+				FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
+				AssetRegistryModule.Get().ScanFilesSynchronous({ DestinationPath }, true);
 
 				UE_LOG(LogTemp, Display, TEXT("File downloaded successfully: %s"), *DestinationPath);
 			}
@@ -115,25 +136,30 @@ void UKaedimPluginSimpleToolProperties::ProcessAssets(const FString& JsonData)
 		for (const TSharedPtr<FJsonValue>& AssetValue : AssetsArray)
 		{
 			TSharedPtr<FJsonObject> AssetObject = AssetValue->AsObject();
+			TArray<TSharedPtr<FJsonValue>> ImageTagsArray = AssetObject->GetArrayField("image_tags");
+			FString ImageName = ImageTagsArray[0]->AsString();
 			TArray<TSharedPtr<FJsonValue>> IterationsArray = AssetObject->GetArrayField("iterations");
-			for (const TSharedPtr<FJsonValue>& IterationValue : IterationsArray)
-			{
-				TSharedPtr<FJsonObject> IterationObject = IterationValue->AsObject();
-				TSharedPtr<FJsonObject> ResultsObject = IterationObject->GetObjectField("results");
-				FString ObjUrl = ResultsObject->GetStringField("obj");
+			if (ImageName.IsEmpty() || IterationsArray.Num() == 0) continue;
 
-				// Process the Obj file URL here
-				UE_LOG(LogTemp, Warning, TEXT("Obj URL: %s"), *ObjUrl);
-				ImportAsset(TEXT("sample name"), ObjUrl);
-			}
+			UE_LOG(LogTemp, Display, TEXT("ImageName: %s"), *ImageName);
+
+			TSharedPtr<FJsonObject> IterationObject = IterationsArray.Last()->AsObject();
+
+
+			const TSharedPtr<FJsonObject>* ResultsObject;
+			if (!IterationObject->TryGetObjectField("results", ResultsObject)) continue;
+			FString ObjUrl = (*ResultsObject)->GetStringField("obj");
+
+			// Process the Obj file URL here
+			UE_LOG(LogTemp, Display, TEXT("Obj URL: %s"), *ObjUrl);
+			DownloadAsset(ImageName, ObjUrl);
 		}
 	}
 }
 
 
-void UKaedimPluginSimpleToolProperties::downloadAssets()
+void UKaedimPluginSimpleToolProperties::DownloadAssets()
 {
-	// Handle button click event here
 	UE_LOG(LogTemp, Display, TEXT("loading assets"));
 	UE_LOG(LogTemp, Display, TEXT("registering keys"));
 	UE_LOG(LogTemp, Display, TEXT("DevID: %s"), *DevID.ToString());
@@ -142,30 +168,25 @@ void UKaedimPluginSimpleToolProperties::downloadAssets()
 
 	// Create the HTTP request object
 	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> HttpRequest = FHttpModule::Get().CreateRequest();
-	HttpRequest->SetURL("https://api.kaedim3d.com/api/v1/fetchAll");
+	FString URL = FString::Printf(TEXT("https://api.kaedim3d.com/api/v1/fetchAll?devID=%s"), *DevID.ToString());
+	HttpRequest->SetURL(URL);
 	HttpRequest->SetVerb("GET");
 
 	HttpRequest->SetHeader(TEXT("X-API-Key"), APIKey.ToString());
-	HttpRequest->SetHeader(TEXT("Authorization-Type"), FString(jwt.c_str()));
+	HttpRequest->SetHeader(TEXT("Authorization"), FString(jwt.c_str()));
+	HttpRequest->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
 
-	TSharedPtr<FJsonObject> JsonObject = MakeShared<FJsonObject>();
-	JsonObject->SetStringField(TEXT("devID"), DevID.ToString());
-
-	FString JsonString;
-	TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&JsonString);
-	FJsonSerializer::Serialize(JsonObject.ToSharedRef(), JsonWriter);
-	HttpRequest->SetContentAsString(JsonString);
 	HttpRequest->OnProcessRequestComplete().BindLambda([this](FHttpRequestPtr Request, FHttpResponsePtr Response, bool bSuccess)
 		{
 			if (bSuccess && Response.IsValid())
 			{
 				FString ResponseBody = Response->GetContentAsString();
-				UE_LOG(LogTemp, Warning, TEXT("API response: %s"), *ResponseBody);
+				UE_LOG(LogTemp, Display, TEXT("API response: %s"), *ResponseBody);
+
+
 				if (Response->GetResponseCode() == 200) {
 					this->ProcessAssets(ResponseBody);
-				}
-				else {
-					UE_LOG(LogTemp, Warning, TEXT("API response: %s"), *ResponseBody);
+
 				}
 			}
 			else
@@ -173,28 +194,13 @@ void UKaedimPluginSimpleToolProperties::downloadAssets()
 				UE_LOG(LogTemp, Error, TEXT("API request failed, please check your keys"));
 			}
 		});
+	UE_LOG(LogTemp, Display, TEXT("Making request to: %s"), *URL);
+
 	HttpRequest->ProcessRequest();
 }
 
-void LoadObjectIntoWorld(const FString& FilePath, UWorld* World)
-{
-	UStaticMesh* StaticMesh = Cast<UStaticMesh>(StaticLoadObject(UStaticMesh::StaticClass(), nullptr, *FilePath));
 
-	if (StaticMesh)
-	{
-		FActorSpawnParameters SpawnParams;
-		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
-		AStaticMeshActor* SpawnedActor = World->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator, SpawnParams);
-		if (SpawnedActor)
-		{
-			SpawnedActor->GetStaticMeshComponent()->SetStaticMesh(StaticMesh);
-		}
-	}
-}
-
-
-void UKaedimPluginSimpleToolProperties::registerKeys()
+void UKaedimPluginSimpleToolProperties::RegisterKeys()
 {
 
 
@@ -216,19 +222,20 @@ void UKaedimPluginSimpleToolProperties::registerKeys()
 
 	TSharedPtr<FJsonObject> JsonObject = MakeShared<FJsonObject>();
 	JsonObject->SetStringField(TEXT("devID"), DevID.ToString());
-	JsonObject->SetStringField(TEXT("destination"), FString("www.example.com/test"));
+	JsonObject->SetStringField(TEXT("destination"), FString("www.example.com/test3"));
 
 	FString JsonString;
 	TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&JsonString);
 	FJsonSerializer::Serialize(JsonObject.ToSharedRef(), JsonWriter);
 	HttpRequest->SetContentAsString(JsonString);
 
+	// Define the function on Request Resolution
 	HttpRequest->OnProcessRequestComplete().BindLambda([this](FHttpRequestPtr Request, FHttpResponsePtr Response, bool bSuccess)
 	{
 			if (bSuccess && Response.IsValid())
 			{
 				FString ResponseBody = Response->GetContentAsString();
-				UE_LOG(LogTemp, Warning, TEXT("API response: %s"), *ResponseBody);
+				UE_LOG(LogTemp, Display, TEXT("API response: %s"), *ResponseBody);
 				if (Response->GetResponseCode() != 201) {
 					UE_LOG(LogTemp, Error, TEXT("API request failed, please check your keys"));
 				}

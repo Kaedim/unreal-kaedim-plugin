@@ -20,7 +20,6 @@ void FKaedimPluginEditorModeCommands::RegisterCommands()
 
 	UI_COMMAND(SimpleTool, "Kaedim", "Opens the base panel for Kaedim", EUserInterfaceActionType::Button, FInputChord());
 	ToolCommands.Add(SimpleTool);
-
 }
 
 TMap<FName, TArray<TSharedPtr<FUICommandInfo>>> FKaedimPluginEditorModeCommands::GetCommands()

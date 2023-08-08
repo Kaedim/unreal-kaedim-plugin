@@ -2,13 +2,15 @@
 
 #pragma once
 #include <string>
+#include <vector>
+#include "Components/PanelWidget.h"
 #include "Blueprint/UserWidget.h"
 #include "CoreMinimal.h"
 #include "UObject/NoExportTypes.h"
 #include "InteractiveToolBuilder.h"
 #include "BaseTools/SingleClickTool.h"
+#include "Components/VerticalBox.h"
 #include "KaedimPluginSimpleTool.generated.h"
-
 
 /**
  * Builder for UKaedimPluginSimpleTool
@@ -37,20 +39,28 @@ public:
 	UKaedimPluginSimpleToolProperties();
 	
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = Assets)
-	void downloadAssets();
+	void DownloadAssets();
+
+	void DownloadAsset(const FString& name, const FString& FBXUrl);
+
+
+	UVerticalBox* ButtonContainer = nullptr;
 
 	UPROPERTY(EditAnywhere, Category = Keys, meta = (DisplayName = "Dev ID"))
 	FText DevID;
-	UPROPERTY(EditAnywhere, Category = Keys, meta = (DisplayName = "API Key"));
+	UPROPERTY(EditAnywhere, Category = Keys, meta = (DisplayName = "API Key"))
 	FText APIKey;
 
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = Keys)
-	void registerKeys();
+	void RegisterKeys();
 	std::string jwt;
 
+	//UFUNCTION(BlueprintCallable, CallInEditor, Category = Assets)
+	//void testAddButton();
 private:
-	void ImportAsset(const FString& name, const FString& FBXUrl);
+	void AddLoadAssetButton(const FString& name, const FString& ObjUrl);
 	void ProcessAssets(const FString& JsonData);
+
 };
 
 
@@ -68,8 +78,6 @@ public:
 	virtual void SetWorld(UWorld* World);
 
 	virtual void Setup() override;
-
-	virtual void OnClicked(const FInputDeviceRay& ClickPos);
 
 protected:
 	UPROPERTY()

@@ -46,7 +46,8 @@ public class KaedimPlugin : ModuleRules
 				"InteractiveToolsFramework",
 				"EditorInteractiveToolsFramework",
 				"HTTP",
-				"JSON"
+				"JSON",
+				"UMG",
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);
